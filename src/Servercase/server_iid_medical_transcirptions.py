@@ -27,8 +27,8 @@ warnings.simplefilter('ignore')
 
 DEVICE = torch.device("cpu")
 CHECKPOINT = "dmis-lab/biobert-v1.1"  # transformer model checkpoint
-NUM_CLIENTS = 5
-NUM_ROUNDS = 20
+NUM_CLIENTS = 8
+NUM_ROUNDS = 3
 import psutil
 import time
 """## Standard Hugging Face workflow

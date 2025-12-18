@@ -26,8 +26,8 @@ warnings.simplefilter('ignore')
 
 DEVICE = torch.device("mps")
 CHECKPOINT = "dmis-lab/biobert-v1.1"
-NUM_ROUNDS = 20
-NUM_CLIENTS = 10
+NUM_ROUNDS = 3
+NUM_CLIENTS = 8
 
 
 

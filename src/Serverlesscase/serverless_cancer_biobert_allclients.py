@@ -37,7 +37,7 @@ warnings.simplefilter('ignore')
 DEVICE = torch.device("cuda")
 # CHECKPOINT = "albert-base-v2"  # transformer model checkpoint
 CHECKPOINT = "dmis-lab/biobert-v1.1"
-NUM_ROUNDS = 20
+NUM_ROUNDS = 3
 for NUM_CLIENTS in [5,10,20]:
     before_communication_cpu_percent = psutil.cpu_percent()
     current_process = psutil.Process()

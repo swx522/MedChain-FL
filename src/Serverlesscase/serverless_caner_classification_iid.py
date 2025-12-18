@@ -30,8 +30,8 @@ warnings.simplefilter('ignore')
 
 DEVICE = torch.device("cpu")
 CHECKPOINT = "albert-base-v2"  # transformer model checkpoint
-NUM_CLIENTS = 10
-NUM_ROUNDS = 20
+NUM_CLIENTS = 8
+NUM_ROUNDS = 3
 
 """## Standard Hugging Face workflow
 
