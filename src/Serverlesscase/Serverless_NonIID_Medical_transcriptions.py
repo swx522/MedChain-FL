@@ -60,45 +60,53 @@ log_event(
     },
 )
 
-raw_temp = load_dataset("bhargavi909/Medical_Transcriptions_upsampled", split="train")
+# 一次性加载数据集和tokenizer（避免重复加载）
+print("Loading dataset and tokenizer...")
+raw_datasets = load_dataset("bhargavi909/Medical_Transcriptions_upsampled")
+if "unsupervised" in raw_datasets:
+    del raw_datasets["unsupervised"]
+
+raw_temp = raw_datasets["train"]
 unique_labels = sorted(list(set([str(l) for l in raw_temp["medical_specialty"]])))
 label_feature = ClassLabel(names=unique_labels)
 NUM_LABELS = len(unique_labels)
 
-def load_data(client_id):
-    """Load Medical data (training and eval)"""
-    raw_datasets = load_dataset("bhargavi909/Medical_Transcriptions_upsampled")
-    if "unsupervised" in raw_datasets:
-        del raw_datasets["unsupervised"]
-    
-    tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
-    
-    def tokenize_function(examples):
-        tokenized = tokenizer(examples["description"], padding=True, truncation=True, max_length=128)
-        new_labels = []
-        for l in examples["medical_specialty"]:
-            if isinstance(l, int): new_labels.append(l)
-            else: new_labels.append(label_feature.str2int(str(l)))
-        tokenized["labels"] = new_labels
-        return tokenized
+tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
 
+def tokenize_function(examples):
+    tokenized = tokenizer(examples["description"], padding=True, truncation=True, max_length=128)
+    new_labels = []
+    for l in examples["medical_specialty"]:
+        if isinstance(l, int): new_labels.append(l)
+        else: new_labels.append(label_feature.str2int(str(l)))
+    tokenized["labels"] = new_labels
+    return tokenized
+
+# 一次性对整个数据集进行tokenization（避免重复tokenization）
+print("Tokenizing dataset...")
+tokenized_datasets = raw_datasets.map(tokenize_function, batched=True, remove_columns=raw_datasets["train"].column_names)
+tokenized_test = tokenized_datasets["test"].select(range(0, 100))  # 测试集固定使用前100条
+data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
+print("Dataset preparation complete!")
+
+def load_data(client_id):
+    """Load Medical data (training and eval) - 使用预加载的数据，避免重复加载"""
     start_idx = client_id * 200
     end_idx = start_idx + 200
 
-    tokenized_datasets = raw_datasets.map(tokenize_function, batched=True, remove_columns=raw_datasets["train"].column_names)
-    tokenized_datasets["train"] = tokenized_datasets["train"].select(range(start_idx, end_idx))
-    tokenized_datasets["test"] = tokenized_datasets["test"].select(range(0, 100))
+    # 只选择对应客户端的数据切片
+    tokenized_train = tokenized_datasets["train"].select(range(start_idx, end_idx))
 
-    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     trainloader = DataLoader(
-        tokenized_datasets["train"],
+        tokenized_train,
         shuffle=True,
         batch_size=32,
         collate_fn=data_collator,
     )
 
     testloader = DataLoader(
-        tokenized_datasets["test"], batch_size=32, collate_fn=data_collator
+        tokenized_test, batch_size=32, collate_fn=data_collator
     )
 
     return trainloader, testloader
@@ -255,7 +263,7 @@ for round_num in range(NUM_ROUNDS):
 
     # Evaluate the global model
     # print(global_model)
-    trainloader, testloader = load_data()
+    trainloader, testloader = load_data(0)  # 使用第一个客户端的数据进行评估
     global_accuracy = evaluate_global_model(global_model, testloader)
     global_accuracies.append(global_accuracy)
     print(f"Global Model Accuracy: {global_accuracy * 100:.2f}%")
@@ -278,27 +286,26 @@ for round_num in range(NUM_ROUNDS):
         details={"path": "./medical_biobert"},
     )
 
-# Get the file size in GB
-    def get_dir_size(path):
-        total_size = 0
-        for dirpath, dirnames, filenames in os.walk(path):
-            for f in filenames:
-                fp = os.path.join(dirpath, f)
-                if os.path.exists(fp):
-                    total_size += os.path.getsize(fp)
-        return total_size
+# Get the file size in GB (只在所有轮次完成后执行一次)
+def get_dir_size(path):
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            if os.path.exists(fp):
+                total_size += os.path.getsize(fp)
+    return total_size
 
-    dir_size = get_dir_size('./medical_biobert') / (1024 * 1024 * 1024)  # Size in GB
-    print("Model size in GB")
-    print(dir_size)
+dir_size = get_dir_size('./medical_biobert') / (1024 * 1024 * 1024)  # Size in GB
+print("Model size in GB")
+print(dir_size)
 
-    # 模型目录大小（用于汇报）
-    log_event(
-        event_type="GLOBAL_MODEL_SIZE",
-        round_id=round_num,
-        message="Model directory size computed",
-        details={"dir_size_gb": float(dir_size)},
-    )
+# 模型目录大小（用于汇报）
+log_event(
+    event_type="GLOBAL_MODEL_SIZE",
+    message="Model directory size computed",
+    details={"dir_size_gb": float(dir_size)},
+)
 
 after_communication_cpu_percent = psutil.cpu_percent()
 current_process = psutil.Process()

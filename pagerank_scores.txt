@@ -1,0 +1,9 @@
+# Round 3 - PageRank scores (normalized)
+# client_id	pagerank_score_raw	pagerank_score_normalized
+0	0.142857	0.500000
+1	0.142857	0.500000
+2	0.142857	0.500000
+3	0.142857	0.500000
+4	0.142857	0.500000
+5	0.142857	0.500000
+6	0.142857	0.500000

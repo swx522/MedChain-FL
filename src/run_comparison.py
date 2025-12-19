@@ -2,8 +2,11 @@
 运行对比实验：有/无 PageRank 的准确率对比。
 
 用途：
+
 - 运行无 PageRank 的训练（baseline）
+
 - 运行有 PageRank 的训练（with PageRank）
+
 - 从日志中提取准确率并生成对比报告
 """
 
@@ -15,6 +18,7 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
+
 def extract_accuracies_from_output(output: str) -> List[float]:
     """从控制台输出中提取准确率"""
     accuracies = []
@@ -24,6 +28,7 @@ def extract_accuracies_from_output(output: str) -> List[float]:
     for match in matches:
         accuracies.append(float(match) / 100.0)  # 转换为0-1之间的值
     return accuracies
+
 
 def extract_accuracies_from_logs(log_file: Path) -> List[float]:
     """从日志文件中提取准确率"""
@@ -46,6 +51,7 @@ def extract_accuracies_from_logs(log_file: Path) -> List[float]:
         print(f"Warning: Could not read log file {log_file}: {e}")
     
     return accuracies
+
 
 def run_training(script_name: str, description: str) -> Tuple[bool, str, List[float]]:
     """运行训练脚本并提取准确率"""
@@ -91,6 +97,7 @@ def run_training(script_name: str, description: str) -> Tuple[bool, str, List[fl
     except Exception as e:
         print(f"Error running script: {e}")
         return False, "", []
+
 
 def generate_comparison_report(
     baseline_accuracies: List[float],
@@ -167,6 +174,7 @@ def generate_comparison_report(
     # 打印报告
     print('\n'.join(report_lines))
     print(f"\n对比报告已保存到: {output_file}")
+
 
 def main():
     print("="*60)

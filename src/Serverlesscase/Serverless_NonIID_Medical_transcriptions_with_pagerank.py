@@ -40,7 +40,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CHECKPOINT = "dmis-lab/biobert-v1.1"
 NUM_ROUNDS = 3
 NUM_CLIENTS = 8
-PAGERANK_THRESHOLD = 0.3  # 剔除阈值：PageRank分数 < 0.3 的客户端将被剔除
+PAGERANK_THRESHOLD = 0.1  # 剔除阈值：原始PageRank分数 < 0.1 的客户端将被剔除（不使用归一化）
 
 before_communication_cpu_percent = psutil.cpu_percent()
 current_process = psutil.Process()
@@ -264,73 +264,32 @@ for round_num in range(NUM_ROUNDS):
                 edges.append((clients[-2], clients[0]))
         
         if clients and edges:
-            # 计算 PageRank 分数
-            # PageRank 返回的原始分数：所有客户端分数之和为 1，但分数分布可能不均匀
-            # 例如：8个客户端时，分数可能在 [0.07, 0.14] 之间，平均值约为 0.125
-            pagerank_scores_raw = compute_pagerank_scores(clients, edges)
+            # 计算 PageRank 分数（原始分数）
+            pagerank_scores = compute_pagerank_scores(clients, edges)
             
-            # ===== PageRank 分数归一化 =====
-            # 目的：将原始 PageRank 分数映射到 [0, 1] 区间，使得阈值判断更加公平和稳定
-            # 
-            # 原因：
-            # 1. 原始 PageRank 分数的绝对值范围会随客户端数量变化而变化
-            #    例如：8个客户端时分数在 [0.07, 0.14]，但100个客户端时可能在 [0.005, 0.02]
-            # 2. 使用固定阈值（如0.3）在客户端数量不同时会产生不一致的筛选效果
-            # 3. 归一化后，分数范围始终是 [0, 1]，使得阈值具有统一的语义
-            #    0.3 表示"相对排名在前70%"，而不是"绝对分数大于0.3"
-            #
-            # 归一化公式：pr_norm = (pr - min) / (max - min)
-            # - 将最低分映射到 0，最高分映射到 1
-            # - 其他分数按比例线性映射到 [0, 1] 区间
-            #
-            # 注意：如果所有客户端分数相同（max == min），则归一化后所有分数都为 0.5
-            #       这种情况下不会剔除任何客户端（因为 0.5 > 0.3）
-            if pagerank_scores_raw:
-                scores_list = list(pagerank_scores_raw.values())
-                min_score = min(scores_list)
-                max_score = max(scores_list)
-                
-                if max_score > min_score:
-                    # 正常情况：有分数差异，进行归一化
-                    pagerank_scores = {
-                        cid: (score - min_score) / (max_score - min_score)
-                        for cid, score in pagerank_scores_raw.items()
-                    }
-                    print(f"PageRank normalization: [{min_score:.4f}, {max_score:.4f}] -> [0.0, 1.0]")
-                else:
-                    # 特殊情况：所有分数相同，归一化后都设为 0.5（避免除以0）
-                    pagerank_scores = {cid: 0.5 for cid in pagerank_scores_raw.keys()}
-                    print(f"PageRank normalization: all scores equal ({min_score:.4f}), normalized to 0.5")
-            else:
-                pagerank_scores = {}
-            
-            # 保存 PageRank 分数到文件（保存归一化后的分数）
+            # 保存 PageRank 分数到文件
             root_dir = Path(__file__).resolve().parent.parent.parent
             scores_path = root_dir / "pagerank_scores.txt"
             with scores_path.open("w", encoding="utf-8") as f:
-                f.write(f"# Round {round_num + 1} - PageRank scores (normalized)\n")
-                f.write("# client_id\tpagerank_score_raw\tpagerank_score_normalized\n")
-                for cid, score_raw in sort_scores_desc(pagerank_scores_raw):
-                    score_norm = pagerank_scores.get(cid, 0.0)
-                    f.write(f"{cid}\t{score_raw:.6f}\t{score_norm:.6f}\n")
+                f.write(f"# Round {round_num + 1} - PageRank scores\n")
+                f.write("# client_id\tpagerank_score\n")
+                for cid, score in sort_scores_desc(pagerank_scores):
+                    f.write(f"{cid}\t{score:.6f}\n")
             
             print(f"PageRank scores saved to: {scores_path}")
-            print("PageRank scores (normalized):")
+            print("PageRank scores:")
             for cid, score in sort_scores_desc(pagerank_scores):
-                score_raw = pagerank_scores_raw.get(cid, 0.0)
-                print(f"  client {cid}: {score:.4f} (raw: {score_raw:.4f})")
+                print(f"  client {cid}: {score:.6f}")
             
-            # 标记并剔除低分客户端（使用归一化后的分数与阈值 0.3 比较）
-            # 归一化后的分数在 [0, 1] 区间，0.3 表示相对排名在前70%的客户端
+            # 标记并剔除低分客户端（直接使用原始分数与阈值 0.1 比较）
             removed_clients = []
             for client_id in list(active_clients):
-                score_norm = pagerank_scores.get(client_id, 0.0)
-                if score_norm < PAGERANK_THRESHOLD:
+                score = pagerank_scores.get(client_id, 0.0)
+                if score < PAGERANK_THRESHOLD:
                     removed_clients.append(client_id)
                     active_clients.remove(client_id)
-                    # 输出剔除日志（符合要求的格式）
-                    score_raw = pagerank_scores_raw.get(client_id, 0.0)
-                    print(f"⚠️  client {client_id} removed (normalized PageRank: {score_norm:.4f} < {PAGERANK_THRESHOLD}, raw: {score_raw:.4f})")
+                    # 输出剔除日志
+                    print(f"[WARNING] client {client_id} removed (PageRank score: {score:.6f} < {PAGERANK_THRESHOLD})")
                     
                     # 记录剔除日志到区块链日志文件
                     log_event(
@@ -339,10 +298,9 @@ for round_num in range(NUM_ROUNDS):
                         client_id=client_id,
                         message=f"client {client_id} removed",
                         details={
-                            "pagerank_score_raw": float(score_raw),
-                            "pagerank_score_normalized": float(score_norm),
+                            "pagerank_score": float(score),
                             "threshold": PAGERANK_THRESHOLD,
-                            "reason": "low normalized PageRank score",
+                            "reason": "low PageRank score",
                         },
                     )
             
