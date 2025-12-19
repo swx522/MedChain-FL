@@ -1,0 +1,2 @@
+{"client_id":null,"curr_hash":"9e0632866317efebc1b3aef8a49c3ea2b2bc74d8bee5e18ad55cff9a163d9c44","details":{"x":1},"event_type":"TEST_EVENT","message":"测试写入","prev_hash":"GENESIS","round":null,"ts_ms":1766129066264}
+{"client_id":null,"curr_hash":"60697b0cbda2933051ba73c7715781c6cc39934116de0560870e9712f4648e16","details":{"x":1},"event_type":"TEST_EVENT","message":"测试写入","prev_hash":"GENESIS","round":null,"ts_ms":1766129070978}

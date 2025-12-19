@@ -16,6 +16,7 @@ from transformers import AutoTokenizer, DataCollatorWithPadding
 from transformers import AutoModelForSequenceClassification
 from torch.optim import AdamW
 from transformers import logging
+from src.log.logger import log_event
 
 """Next we will set some global variables and disable some of the logging to clear out our output."""
 
@@ -38,6 +39,18 @@ current_process = psutil.Process()
 
 memory_info_after = current_process.memory_info()
 start = time.time()
+
+# 训练开始日志（用于答辩截图/追踪配置）
+log_event(
+    event_type="TRAIN_START",
+    message="训练开始（Serverless_NonIID_Medical_transcriptions.py）",
+    details={
+        "checkpoint": CHECKPOINT,
+        "num_rounds": NUM_ROUNDS,
+        "num_clients": NUM_CLIENTS,
+        "device": str(DEVICE),
+    },
+)
 
 raw_temp = load_dataset("bhargavi909/Medical_Transcriptions_upsampled", split="train")
 unique_labels = sorted(list(set([str(l) for l in raw_temp["medical_specialty"]])))
@@ -159,16 +172,64 @@ def evaluate_global_model(model, testloader):
 global_accuracies = []
 for round_num in range(NUM_ROUNDS):
     print(f"--- Round {round_num + 1} ---")
+
+    # 每轮开始日志
+    log_event(
+        event_type="ROUND_START",
+        round_id=round_num,
+        message=f"Round {round_num + 1} start",
+        details={"num_clients": NUM_CLIENTS},
+    )
+
     aggregated_params = []
     for k in range(NUM_CLIENTS):
+
+            # 客户端本地训练开始
+            log_event(
+                event_type="CLIENT_TRAIN_START",
+                round_id=round_num,
+                client_id=k,
+                message=f"Client {k} start local training",
+            )
+
             trainloader, testloader = load_data(k)
             client_model = copy.deepcopy(global_model)
             
             client = IMDBClient(client_model, trainloader, testloader)
             client.train_model()
+
+            # 客户端本地训练结束
+            log_event(
+                event_type="CLIENT_TRAIN_END",
+                round_id=round_num,
+                client_id=k,
+                message=f"Client {k} finish local training",
+            )
+
             client_params = client.get_parameters(config={})
+
+            # 模型提交（客户端提交更新）
+            # 注意：不要把参数数组写进日志（太大），只写元信息
+            log_event(
+                event_type="CLIENT_UPDATE_SUBMITTED",
+                round_id=round_num,
+                client_id=k,
+                message=f"Client {k} submitted model update",
+                details={"num_tensors": len(client_params)},
+            )
+
             loss, accuracy = client.evaluate_model()
             print(f"Client {k} Acc: {accuracy:.4f}")
+
+            # 客户端本地评估结果
+            log_event(
+                event_type="CLIENT_LOCAL_EVAL",
+                round_id=round_num,
+                client_id=k,
+                message=f"Client {k} local evaluation done",
+                details={"loss": float(loss), "accuracy": float(accuracy)},
+            )
+
             aggregated_params.append(client_params)
 
     # Averaging the parameters
@@ -176,13 +237,39 @@ for round_num in range(NUM_ROUNDS):
     state_dict = OrderedDict({k: torch.Tensor(v) for k, v in zip(global_model.state_dict().keys(), avg_params)})
     global_model.load_state_dict(state_dict)
 
+    # 本轮聚合完成
+    log_event(
+        event_type="ROUND_AGGREGATED",
+        round_id=round_num,
+        message=f"Round {round_num + 1} aggregated (FedAvg)",
+        details={"num_submitted_clients": len(aggregated_params)},
+    )
+
     # Evaluate the global model
     # print(global_model)
     trainloader, testloader = load_data()
     global_accuracy = evaluate_global_model(global_model, testloader)
     global_accuracies.append(global_accuracy)
     print(f"Global Model Accuracy: {global_accuracy * 100:.2f}%")
+
+    # 全局评估结果
+    log_event(
+        event_type="GLOBAL_EVAL",
+        round_id=round_num,
+        message=f"Round {round_num + 1} global evaluation done",
+        details={"global_accuracy": float(global_accuracy)},
+    )
+
     global_model.save_pretrained('./medical_biobert')
+
+    # 模型保存事件
+    log_event(
+        event_type="GLOBAL_MODEL_SAVED",
+        round_id=round_num,
+        message="Global model saved",
+        details={"path": "./medical_biobert"},
+    )
+
 # Get the file size in GB
     def get_dir_size(path):
         total_size = 0
@@ -196,6 +283,14 @@ for round_num in range(NUM_ROUNDS):
     dir_size = get_dir_size('./medical_biobert') / (1024 * 1024 * 1024)  # Size in GB
     print("Model size in GB")
     print(dir_size)
+
+    # 模型目录大小（用于汇报）
+    log_event(
+        event_type="GLOBAL_MODEL_SIZE",
+        round_id=round_num,
+        message="Model directory size computed",
+        details={"dir_size_gb": float(dir_size)},
+    )
 
 after_communication_cpu_percent = psutil.cpu_percent()
 current_process = psutil.Process()
@@ -212,3 +307,15 @@ print(f"Memory Usage: {memory_overhead:.2f} GB")
 print(f"Latency: {(end-start)/60} min")
 print("global accuracies")
 print(global_accuracies)
+
+# 训练结束日志
+log_event(
+    event_type="TRAIN_END",
+    message="训练结束（资源与精度汇总）",
+    details={
+        "cpu_overhead_percent": float(cpu_overhead),
+        "memory_overhead_gb": float(memory_overhead),
+        "latency_min": float((end-start)/60),
+        "global_accuracies": [float(x) for x in global_accuracies],
+    },
+)
