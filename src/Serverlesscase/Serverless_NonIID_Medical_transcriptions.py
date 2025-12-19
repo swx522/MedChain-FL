@@ -1,5 +1,13 @@
 print("Start Training!!!!")
 
+import sys
+from pathlib import Path
+
+# 添加项目根目录到 Python 路径，以便导入 src 模块
+root_dir = Path(__file__).resolve().parent.parent.parent
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
+
 import psutil
 import time
 from collections import OrderedDict
