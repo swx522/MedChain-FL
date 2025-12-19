@@ -33,7 +33,7 @@ from evaluate import load as load_metric
 
 from transformers import AutoTokenizer, DataCollatorWithPadding
 from transformers import AutoModelForSequenceClassification
-from transformers import AdamW
+from torch.optim import AdamW
 from transformers import logging
 
 """Next we will set some global variables and disable some of the logging to clear out our output."""
@@ -44,7 +44,7 @@ logging.set_verbosity(logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.simplefilter('ignore')
 
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 CHECKPOINT = "albert-base-v2"  # transformer model checkpoint
 NUM_CLIENTS = 8
 NUM_ROUNDS = 3
@@ -62,7 +62,7 @@ count = 0
 memory_info_after = current_process.memory_info()
 start = time.time()
 
-def load_data_count(count):
+def load_data_clients(cid):
     """Load IMDB data (training and eval)"""
     raw_datasets = load_dataset("imdb")
     raw_datasets = raw_datasets.shuffle(seed=42)
@@ -73,15 +73,13 @@ def load_data_count(count):
     tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
 
     def tokenize_function(examples):
-        return tokenizer(examples["text"], truncation=True)
-
-    # Select 20 random samples to reduce the computation cost
-    train_population = random.sample(range(len(raw_datasets["train"])), 100)
-    test_population = random.sample(range(len(raw_datasets["test"])), 100)
+        return tokenizer(examples["text"], truncation=True, max_length=128) 
+    start_idx = int(cid) * 200
+    end_idx = start_idx + 200
 
     tokenized_datasets = raw_datasets.map(tokenize_function, batched=True)
-    tokenized_datasets["train"] = tokenized_datasets["train"].select(range(int(300*count),int(int(300*count)+240 )))
-    tokenized_datasets["test"] = tokenized_datasets["test"].select(range((int(300*count)+240 ),int(300*(count+1)) ))
+    tokenized_datasets["train"] = tokenized_datasets["train"].select(range(start_idx, end_idx))
+    tokenized_datasets["test"] = tokenized_datasets["test"].select(range(0, 100))
 
     tokenized_datasets = tokenized_datasets.remove_columns("text")
     tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
@@ -95,52 +93,12 @@ def load_data_count(count):
     )
 
     testloader = DataLoader(
-        tokenized_datasets["test"], batch_size=32, collate_fn=data_collator
-    )
-
-    return trainloader, testloader,count
-def load_data():
-    """Load IMDB data (training and eval)"""
-    raw_datasets = load_dataset("imdb")
-    raw_datasets = raw_datasets.shuffle(seed=42)
-
-    # remove unnecessary data split
-    del raw_datasets["unsupervised"]
-
-    tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
-
-    def tokenize_function(examples):
-        return tokenizer(examples["text"], truncation=True)
-
-    # Select 20 random samples to reduce the computation cost
-    train_population = random.sample(range(len(raw_datasets["train"])), 100)
-    test_population = random.sample(range(len(raw_datasets["test"])), 100)
-
-    tokenized_datasets = raw_datasets.map(tokenize_function, batched=True)
-    tokenized_datasets["train"] = tokenized_datasets["train"].select(train_population)
-    tokenized_datasets["test"] = tokenized_datasets["test"].select(test_population)
-
-    tokenized_datasets = tokenized_datasets.remove_columns("text")
-    tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
-
-    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    trainloader = DataLoader(
-        tokenized_datasets["train"],
-        shuffle=True,
-        batch_size=32,
-        collate_fn=data_collator,
-    )
-
-    testloader = DataLoader(
-        tokenized_datasets["test"], batch_size=32, collate_fn=data_collator
+        tokenized_datasets["test"],batch_size=32,collate_fn=data_collator
     )
 
     return trainloader, testloader
 
-"""### Training and testing the model
-
-Once we have a way of creating our trainloader and testloader, we can take care of the training and testing. This is very similar to any `PyTorch` training or testing loop:
-"""
+"""### Training and testing the model"""
 
 def train(net, trainloader, epochs):
     optimizer = AdamW(net.parameters(), lr=5e-5)
@@ -171,14 +129,6 @@ def test(net, testloader):
     accuracy = metric.compute()["accuracy"]
     return loss, accuracy
 
-"""### Creating the model itself
-
-To create the model itself, we will just load the pre-trained alBERT model using Hugging Face’s `AutoModelForSequenceClassification` :
-"""
-
-net = AutoModelForSequenceClassification.from_pretrained(
-    CHECKPOINT, num_labels=2
-).to(DEVICE)
 
 """## Federating the example
 
@@ -221,10 +171,13 @@ class IMDBClient(fl.client.NumPyClient):
 
 In order to simulate the federated setting we need to provide a way to instantiate clients for our simulation. Here, it is very simple as every client will hold the same piece of data (this is not realistic, it is just used here for simplicity sakes).
 """
-trainloader, testloader,count = load_data_count(count)
-count+=1
 def client_fn(cid):
-  return IMDBClient(net, trainloader, testloader)
+    trainloader, testloader = load_data_clients(int(cid))
+    net = AutoModelForSequenceClassification.from_pretrained(
+        CHECKPOINT, num_labels=2
+    ).to(DEVICE)
+    
+    return IMDBClient(net, trainloader, testloader)
 
 """## Starting the simulation
 
@@ -239,10 +192,14 @@ def weighted_average(metrics):
   examples = [num_examples for num_examples, _ in metrics]
   return {"accuracy": sum(accuracies) / sum(examples), "loss": sum(losses) / sum(examples)}
 
+net_init = AutoModelForSequenceClassification.from_pretrained(CHECKPOINT, num_labels=2)
+initial_parameters = fl.common.ndarrays_to_parameters([val.cpu().numpy() for _, val in net_init.state_dict().items()])
+
 strategy = fl.server.strategy.FedAvg(
     fraction_fit=1.0,
     fraction_evaluate=1.0,
     evaluate_metrics_aggregation_fn=weighted_average,
+    initial_parameters=initial_parameters,
 )
 
 fl.simulation.start_simulation(

@@ -17,7 +17,7 @@ from datasets import load_dataset
 from evaluate import load as load_metric
 from transformers import AutoTokenizer, DataCollatorWithPadding
 from transformers import AutoModelForSequenceClassification
-from transformers import AdamW
+from torch.optim import AdamW
 from transformers import logging
 
 """Next we will set some global variables and disable some of the logging to clear out our output."""
@@ -34,7 +34,7 @@ warnings.simplefilter('ignore')
 # else:
 #     DEVICE = torch.device("cpu")
 #     print("CUDA is not available. Using CPU")
-DEVICE = torch.device("cuda")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # CHECKPOINT = "albert-base-v2"  # transformer model checkpoint
 CHECKPOINT = "dmis-lab/biobert-v1.1"
 NUM_ROUNDS = 3

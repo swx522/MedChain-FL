@@ -15,7 +15,7 @@ from evaluate import load as load_metric
 
 from transformers import AutoTokenizer, DataCollatorWithPadding
 from transformers import AutoModelForSequenceClassification
-from transformers import AdamW
+from torch.optim import AdamW
 from transformers import logging
 
 """Next we will set some global variables and disable some of the logging to clear out our output."""
@@ -26,7 +26,7 @@ logging.set_verbosity(logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.simplefilter('ignore')
 
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("yes")
 CHECKPOINT = "albert-base-v2"  # transformer model checkpoint
 NUM_CLIENTS = 8
