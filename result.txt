@@ -1,0 +1,39 @@
+=== Training Summary ===
+【训练配置】
+- 预训练模型：dmis-lab/biobert-v1.1
+- 联邦学习轮次（NUM_ROUNDS）：20
+- 初始客户端数（NUM_CLIENTS）：8
+- 设备：GPU (CUDA) / CPU
+- 数据集：bhargavi909/Medical_Transcriptions_upsampled（Non-IID分布）
+
+【资源开销指标】
+- CPU Overhead：57.80%
+- Memory Usage：-7.22 GB（注：该值为负数，因代码中内存统计变量命名颠倒，修正后应为正数）
+- Latency（总训练耗时）：146.34 min
+
+【全局准确率变化（按轮次）】
+  Round 1: 10.00%
+  Round 2: 24.00%
+  Round 3: 33.00%
+  Round 4: 35.00%
+  Round 5: 41.00%
+  Round 6: 45.00%
+  Round 7: 46.00%
+  Round 8: 48.00%
+  Round 9: 50.00%
+  Round 10: 53.00%
+  Round 11: 54.00%
+  Round 12: 59.00%
+  Round 13: 57.00%
+  Round 14: 61.00%
+  Round 15: 60.00%
+  Round 16: 64.00%
+  Round 17: 65.00%
+  Round 18: 64.00%
+  Round 19: 65.00%
+  Round 20: 65.00%
+
+【关键结论】
+1. 模型准确率随训练轮次逐步提升，最终稳定在65.00%（Round 17/19/20）；
+2. 训练过程中准确率出现小幅波动（如Round 13从59%降至57%），属于联邦学习正常现象；
+3. 内存开销统计存在代码逻辑错误，需修正变量命名后重新统计。
